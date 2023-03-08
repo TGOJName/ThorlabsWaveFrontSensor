@@ -313,9 +313,10 @@ class ThorlabsWaveFrontSensorWorker(Worker):
             print('error in WFS_ZernikeLsf():' + str(self.errorMessage.value))
         else:
             print('WFS Zernike coefficients calculated')
+        
+        self.data_write()
         return True
-    
-
 
     def shutdown(self):
+        self.wfs.WFS_close(self.instrumentHandle)
         pass
