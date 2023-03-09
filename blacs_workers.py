@@ -2,6 +2,9 @@
 #                                                                   #
 # /labscript_devices/ThorlabsWaveFrontSensor/blacs_worker.py        #
 #                                                                   #
+# Thanks to Nikita Vladimirov for his python driver of WFS as a     #
+#   reference (https://github.com/nvladimus/WFS)                    #
+#                                                                   #
 # This file is part of labscript_devices                            #
 #                                                                   #
 #####################################################################
@@ -20,7 +23,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         # logging.basicConfig(level=logging.DEBUG) # Use this line to debugging 
         global h5py; import labscript_utils.h5_lock, h5py 
 
-        self.wfs = ct.windll.WFS_64.dll
+        self.wfs = ct.WinDLL(r'C:\Program Files\IVI Foundation\VISA\Win64\Bin\WFS_64.dll')
 
         # Functions and ids declaration
         self.byref = ct.byref
@@ -28,9 +31,9 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.deviceID  = ct.c_int32()  
         self.instrumentListIndex  = ct.c_int32() 
         self.inUse = ct.c_int32() 
-        self.instrumentName = ct.create_string_buffer("", 20)
-        self.instrumentSN = ct.create_string_buffer("", 20)
-        self.resourceName = ct.create_string_buffer("", 30)
+        self.instrumentName = ct.create_string_buffer(20)
+        self.instrumentSN = ct.create_string_buffer(20)
+        self.resourceName = ct.create_string_buffer(30)
         self.IDQuery = ct.c_bool()
         self.resetDevice = ct.c_bool()
         self.instrumentHandle = ct.c_ulong() # This is where the device lives
@@ -47,7 +50,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.cancelWavefrontTilt = ct.c_int32() 
         self.triggerMode = ct.c_int32() 
         self.refInternal = ct.c_int32() 
-        self.errorMessage = ct.create_string_buffer("", 512)
+        self.errorMessage = ct.create_string_buffer(512)
         self.errorCode = ct.c_int32()
         self.pixelFormat = ct.c_int32()
         self.pixelFormat.value = 0 #currently 8 bit only
@@ -157,14 +160,14 @@ class ThorlabsWaveFrontSensorWorker(Worker):
 
 
     def program_manual(self,front_panel_values):
-        self.camResolIndex.value = front_panel_values['Resolution Index']
+        self.camResolIndex.value = int(front_panel_values['Resolution Index'])
         self.pupilCenterXMm.value = front_panel_values['Pupil Center X']
         self.pupilCenterYMm.value = front_panel_values['Pupil Center Y']
         self.pupilDiameterXMm.value = front_panel_values['Pupil Diameter X']
         self.pupilDiameterYMm.value = front_panel_values['Pupil Diameter Y']
-        self.zernikeOrder.value = front_panel_values['Highest Zernike Order']
-        self.fourierOrder.value = front_panel_values['Fourier Order']
-        self.limitToPupil.value = front_panel_values['Limited to Pupil?']
+        self.zernikeOrder.value = int(front_panel_values['Highest Zernike Order'])
+        self.fourierOrder.value = int(front_panel_values['Fourier Order'])
+        self.limitToPupil.value = int(front_panel_values['Limited to Pupil?'])
 
         devStatus = self.wfs.WFS_ConfigureCam(self.instrumentHandle, 
                                         self.pixelFormat, self.camResolIndex, self.byref(self.spotsX), self.byref(self.spotsY))
