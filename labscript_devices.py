@@ -80,5 +80,5 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
         # out_table['motor3'].fill(self.target_position[2])
         # out_table['motor4'].fill(self.target_position[3])
         # grp = self.init_device_group(hdf5_file)
-        # grp.create_dataset('DATA',compression=config.compression,data=out_table) 
+        # grp.create_dataset('DATA',compression=config.compression,data={}) 
         pass
