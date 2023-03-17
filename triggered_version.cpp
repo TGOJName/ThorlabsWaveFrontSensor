@@ -93,6 +93,7 @@
 #define  SAMPLE_WAVEFRONT_TYPE         WAVEFRONT_MEAS // calculate measured wavefront
 
 #define  SAMPLE_PRINTOUT_SPOTS         (5)  // printout results for first 5 x 5 spots only
+#define  I_DONT_BELIEVE_THIS_WORKS         (2)
 
 /*===============================================================================================================================
   Data type definitions
@@ -218,6 +219,8 @@ int main (void)
 	double			  fitErrMean;
 	double			  fitErrDev;
 
+	long 			  tester;
+
 	
 	// Get the driver revision
 	if(err = WFS_revision_query (0, instr.version_wfs_driver, instr.version_cam_driver)) // pass NULL because handle is not yet initialized
@@ -270,6 +273,9 @@ int main (void)
 		return 0;
 	}
 	
+	if(err = WFS_SetTriggerMode (instr.handle, I_DONT_BELIEVE_THIS_WORKS)) // Set to active-high trigger mode
+		handle_errors(err);	
+
 	// Activate desired MLA
 	if(err = WFS_SelectMla (instr.handle, instr.selected_mla))
 		handle_errors(err);
@@ -336,9 +342,8 @@ int main (void)
 
 	printf("Camera is configured to detect %d x %d lenslet spots.\n\n", instr.spots_x, instr.spots_y);
 
-	if(err = WFS_SetTriggerMode (instr.handle, 2)) // Set to active-high trigger mode
+	if(err = WFS_SetTriggerMode (instr.handle, I_DONT_BELIEVE_THIS_WORKS)) // Set to active-high trigger mode
 		handle_errors(err);	
-	printf("\nSet WFS to internal reference plane.\n");
 
 	// set camera exposure time and gain if you don't want to use auto exposure
 	// use functions WFS_GetExposureTimeRange, WFS_SetExposureTime, WFS_GetMasterGainRange, WFS_SetMasterGain
@@ -440,38 +445,31 @@ int main (void)
 		strcpy(path,inputreader);
 		strcat(path,"\\WFSdata.txt");
 	}
+	if(err = WFS_SetTriggerMode (instr.handle, I_DONT_BELIEVE_THIS_WORKS)) // Set to active-high trigger mode
+		handle_errors(err);	
 
 	do{ // Looping until interrupted by disconnection or kill command
 
-		printf("\nRead camera images:\n");
-		
-		printf("Image No.     Status     ->   newExposure[ms]   newGainFactor\n");
-		
 		// Wait for trigger
+		cnt = 0;
 		do{
 			if(err = WFS_GetStatus (instr.handle, &instr.status)){
 				handle_errors(err);
 				break;
 			}
-			if(instr.status & WFS_STATBIT_ATR){
-				printf("Waiting for trigger");
+			// if(instr.status & WFS_STATBIT_ATR){
+			if(instr.status == 0x00000710){
+				if(cnt==100){
+					cnt=0;
+					printf("Waiting for trigger\n");
+				}
 				Sleep(1);
+				cnt ++;
 			}else{
 				printf("Status code: 0x%08X\n",instr.status);
 				break;
 			}
 		}while(1);
-
-		// close program if no well exposed image is feasible
-		if( (instr.status & WFS_STATBIT_PTH) || (instr.status & WFS_STATBIT_PTL) ||(instr.status & WFS_STATBIT_HAL) )
-		{
-			printf("\nProgram will be closed because of unusable image quality, press <ENTER>.");
-			WFS_close(instr.handle); // required to release allocated driver data
-			fflush(stdin);
-			getchar();
-			exit(1);
-		}
-
 		
 		// calculate all spot centroid positions using dynamic noise cut option
 		if(err = WFS_CalcSpotsCentrDiaIntens (instr.handle, SAMPLE_OPTION_DYN_NOISE_CUT, SAMPLE_OPTION_CALC_SPOT_DIAS))
