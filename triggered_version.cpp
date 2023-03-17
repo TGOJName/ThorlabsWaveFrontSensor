@@ -336,6 +336,8 @@ int main (void)
 
 	printf("Camera is configured to detect %d x %d lenslet spots.\n\n", instr.spots_x, instr.spots_y);
 
+	if(err = WFS_SetTriggerMode (instr.handle, 2)) // Set to active-high trigger mode
+		handle_errors(err);	
 	printf("\nSet WFS to internal reference plane.\n");
 
 	// set camera exposure time and gain if you don't want to use auto exposure
@@ -439,26 +441,21 @@ int main (void)
 		strcat(path,"\\WFSdata.txt");
 	}
 
-	if(err = WFS_SetTriggerMode (instr.handle, 2)) // Set to active-high trigger mode
-		handle_errors(err);	
-
 	do{ // Looping until interrupted by disconnection or kill command
 
+		printf("\nRead camera images:\n");
+		
+		printf("Image No.     Status     ->   newExposure[ms]   newGainFactor\n");
+		
 		// Wait for trigger
-		cnt = 0;
 		do{
 			if(err = WFS_GetStatus (instr.handle, &instr.status)){
 				handle_errors(err);
 				break;
 			}
-			// if(instr.status & WFS_STATBIT_ATR){
-			if(instr.status == 0x00000710){
-				if(cnt==100){
-					cnt=0;
-					printf("Waiting for trigger\n");
-				}
+			if(instr.status & WFS_STATBIT_ATR){
+				printf("Waiting for trigger");
 				Sleep(1);
-				cnt ++;
 			}else{
 				printf("Status code: 0x%08X\n",instr.status);
 				break;
