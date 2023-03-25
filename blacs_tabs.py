@@ -24,7 +24,6 @@ from qtutils.qt import QtWidgets
 class ThorlabsWaveFrontSensorTab(DeviceTab):
     def initialise_GUI(self):        
         connection_object = self.settings['connection_table'].find_by_name(self.device_name)
-        connection_table_properties = connection_object.properties
 
         wfsProp = {}
         wfsProp['Resolution Index'] = {
@@ -89,17 +88,14 @@ class ThorlabsWaveFrontSensorTab(DeviceTab):
 
         # Create widgets for outputs defined so far (i.e. analog outputs only)
         _, AO_widgets, _ = self.auto_create_widgets()  
-        widget_list = [("Analog outputs", AO_widgets)]
+        widget_list = [("Make sure the WFS_receiver.exe is opened", AO_widgets)]
         self.auto_place_widgets(*widget_list)
         # Connect signals for buttons
         # Add icons
-        
-        self.sensorIndex = connection_table_properties.get('sensorIndex', None)
 
         # Create and set the primary worker
         self.create_worker("main_worker",
-                            'labscript_devices.ThorlabsWaveFrontSensor.blacs_workers.ThorlabsWaveFrontSensorWorker',
-                            {'sensorIndex':self.sensorIndex})
+                            'labscript_devices.ThorlabsWaveFrontSensor.blacs_workers.ThorlabsWaveFrontSensorWorker',)
         
         self.primary_worker = "main_worker"
 

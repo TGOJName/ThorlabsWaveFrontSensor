@@ -30,7 +30,6 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
     @set_passed_properties(
         property_names={
             'connection_table_properties': [
-                'sensorIndex',
             ]
         }
     )
@@ -38,11 +37,9 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
         self,
         name,
         parent_device,
-        sensorIndex,
         **kwargs
     ):
         TriggerableDevice.__init__(self, name, parent_device, **kwargs)
-        self.BLACS_connection = '%u'%(sensorIndex)
 
     def expose(self, t, trigger_duration = 150e-6):
         """Request an exposure at the given time. A trigger will be produced by the
@@ -56,15 +53,6 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
         'probe', 'atoms' and 'background'. For this one might call expose three times
         with the same name, but three different frametypes.
         """
-        # Backward compatibility with code that calls expose with name as the first
-        # argument and t as the second argument:
-        # if isinstance(t, str) and isinstance(name, (int, float)):
-        #     msg = """expose() takes `t` as the first argument and `name` as the second
-        #         argument, but was called with a string as the first argument and a
-        #         number as the second. Swapping arguments for compatibility, but you are
-        #         advised to modify your code to the correct argument order."""
-        #     print(dedent(msg), file=sys.stderr)
-        #     t, name = name, t
         if not trigger_duration > 0:
             msg = "trigger_duration must be > 0, not %s" % str(trigger_duration)
             raise ValueError(msg)
@@ -72,6 +60,7 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
         return trigger_duration
 
     def generate_code(self, hdf5_file):
+
         # dtypes = {'names':['motor1','motor2','motor3','motor4'],'formats':[np.uint32,np.uint32,np.uint32,np.uint32]}
 
         # out_table = np.zeros(1,dtype=dtypes)# create the table data for the hdf5 file.
@@ -81,4 +70,5 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
         # out_table['motor4'].fill(self.target_position[3])
         # grp = self.init_device_group(hdf5_file)
         # grp.create_dataset('DATA',compression=config.compression,data={}) 
+
         pass
