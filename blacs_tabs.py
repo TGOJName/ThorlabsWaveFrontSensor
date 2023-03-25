@@ -83,13 +83,6 @@ class ThorlabsWaveFrontSensorTab(DeviceTab):
             'step': 2,
             'decimals': 0,
         }
-        wfsProp['refresher'] = {
-            'base_unit': '',
-            'min': 0,
-            'max': 1000,
-            'step': 1,
-            'decimals': 0,
-        }
         
         # Create DDS Output objects: we only need frequency for the carrier and frequency and phase for the mod
         self.create_analog_outputs(wfsProp)

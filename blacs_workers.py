@@ -7,15 +7,12 @@
 #####################################################################
 from asyncio.log import logger
 import logging
-from formatter import NullFormatter
-import labscript_utils.h5_lock
-import h5py
 from blacs.tab_base_classes import Worker
-import labscript_utils.properties as properties
 import ctypes as ct
-from ctypes import wintypes as wt
 import numpy as np
 from time import sleep
+from threading import Thread
+import pickle
 
 class ThorlabsWaveFrontSensorWorker(Worker):
     def init(self):
@@ -55,40 +52,18 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.fourierOrder = ct.c_int32()
         self.doSphericalReference = ct.c_int32()
 
-        # Received Variable decalarations
-        self.exposureTimeAct = ct.c_double()
-        self.masterGainAct = ct.c_double() 
+        # (Patial) Received Variable decalarations
         self.errorMessage = ct.create_string_buffer(512)
         self.errorCode = ct.c_int32()
-        self.camResolIndex = ct.c_int32()
         self.spotsX = ct.c_int32()
         self.spotsY = ct.c_int32()
-        self.beam_centroid_x = ct.c_double() 
-        self.beam_centroid_y = ct.c_double() 
-        self.beam_diameter_x = ct.c_double() 
-        self.beam_diameter_y = ct.c_double() 
-        self.deviation_x = ct.c_double() 
-        self.deviation_y = ct.c_double() 
-        self.wavefront_min = ct.c_double() 
-        self.wavefront_max = ct.c_double() 
-        self.wavefront_diff = ct.c_double() 
-        self.wavefront_mean = ct.c_double() 
-        self.wavefront_rms = ct.c_double() 
-        self.wavefront_weighted_rms = ct.c_double() 
-        self.fourierM = ct.c_double()
-        self.fourierJ0 = ct.c_double()
-        self.fourierJ45 = ct.c_double()
-        self.optoSphere = ct.c_double()
-        self.optoCylinder = ct.c_double()
-        self.optoAxisDeg = ct.c_double()
-        self.radiusOfCurvature = ct.c_double()
-        self.fitErrMean = ct.c_double()
-        self.fitErrStdev = ct.c_double()
 
         # Parameter settings
+        # self.path = r'C:\Users\Public\Desktop\WFSdata.txt'
+        self.path = r'C:\Users\Public\Desktop\WFSdata.pkl'
         self.calculateDiameters.value = 0 # Used by manufacturer
         self.pixelFormat.value = 0 # Currently 8 bit only
-        self.triggerMode.value = 3 # 0 for continuous mode, 1 for active low trigger, 2 for active high trigger, 3 for software control mode
+        self.triggerMode.value = 2 # 0 for continuous mode, 1 for active low trigger, 2 for active high trigger, 3 for software control mode
         self.zernikeOrder.value = 4 # The highest order Zernike coefficient will be fitted; 
                                     #   should be between 2 and 10
         self.ZernikeOrderCount = [0,0,6,10,15,21,28,36,45,55,66]
@@ -96,10 +71,10 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.arrayZernikeRMS = np.zeros(self.zernikeOrder.value,dtype = np.float32)
         self.fourierOrder.value = 2 # Used for optometric calulations; should be chosen from 2, 4, 6 and no larger than zernikeOrder
         self.arrayReconstructSelect = np.ones(self.ZernikeOrderCount[self.zernikeOrder.value],dtype=np.int32)
-                                    # The T/F table about whether each Zernike mode used to reconstruct the wavefront
-        self.doSphericalReference.value = 0 # Not sure what it indicates so I put 0 here assuming it means no reference
-        self.instrumentListIndex.value = self.sensorIndex # 0,1,2,, if multiple instruments connected
-        self.camResolIndex.value = 1
+                                    # The T/F table determining whether each Zernike mode is used to reconstruct the wavefront
+        self.doSphericalReference.value = 0 # Not sure what it indicates so I put 0 here assuming it means plane reference
+        self.instrumentListIndex.value = self.sensorIndex # 0,1,2... if multiple instruments connected
+        self.camResolIndex.value = 0
         '''
         About camResolIndex.value:
         For WFS20 instruments: 
@@ -130,10 +105,11 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         10      256x256, sub2 
         11      180x180, sub2
         '''
-        self.pupilCenterXMm.value = 0 # mm
-        self.pupilCenterYMm.value = 0 # mm
-        self.pupilDiameterXMm.value = 4.5 # mm
-        self.pupilDiameterYMm.value = 4.5 # mm
+
+        self.pupilCenterXMm.value = 0. # mm
+        self.pupilCenterYMm.value = 0. # mm
+        self.pupilDiameterXMm.value = 3. # mm
+        self.pupilDiameterYMm.value = 3. # mm
         self.dynamicNoiseCut.value = 1 # Boolean
         self.cancelWavefrontTilt.value = 1
         self.refInternal.value = 0 # 0/1 stands for using internal/user-defined reference plane
@@ -188,10 +164,9 @@ class ThorlabsWaveFrontSensorWorker(Worker):
             print('SpotsX:' + str(self.spotsX.value))
             print('SpotsY:' + str(self.spotsY.value))
 
-        self.arrayWavefront = np.zeros((80,80),dtype = np.float32) #
         print("hello there")
 
-        devStatus = self.wfs.WFS_SetTriggerMode(self.instrumentHandle, self.refInternal)
+        devStatus = self.wfs.WFS_SetTriggerMode(self.instrumentHandle, self.triggerMode)
         if(devStatus != 0):
             self.errorCode.value = devStatus
             self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
@@ -224,46 +199,211 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         print('fourierOrder: '+str(self.fourierOrder.value))
         print('limitToPupil: '+str(self.limitToPupil.value))
         return {}
-    
-    def data_write(self,path = r'C:\Users\Public\Desktop\WFSdata.txt'):
-        print('save to file:'+path)
-        # f=open(path, "a")
-        f=open(path, "w") # Used for testing
+        
+    def threaded_worker(self,wfs,instrumentHandle,errorCode,errorMessage,byref,dynamicNoiseCut,
+                        calculateDiameters,cancelWavefrontTilt,wavefrontType,limitToPupil,
+                        zernikeOrder,fourierOrder,arrayZernikes,arrayZernikeRMS,
+                        arrayReconstructSelect,doSphericalReference,path):
 
-        storedData = {
-            'Beam Center X':self.beam_centroid_x.value,
-            'Beam Center Y':self.beam_centroid_y.value,
-            'Beam Diameter X':self.beam_diameter_x.value,
-            'Beam Diameter Y':self.beam_diameter_y.value, 
-            'Beam Deviation X':self.deviation_x.value,
-            'Beam Deviation Y':self.deviation_y.value,
-            'Wavefront Min':self.wavefront_min.value, 
-            'Wavefront Max':self.wavefront_max.value, 
-            'Wavefront Peak-Valley':self.wavefront_diff.value,
-            'Wavefront Mean':self.wavefront_mean.value, 
-            'Wavefront RMS':self.wavefront_rms.value, 
-            'Wavefront Weighted RMS':self.wavefront_weighted_rms.value,
-            'Fourier M':self.fourierM.value,
-            'Fourier J0':self.fourierJ0.value,
-            'Fourier J45':self.fourierJ45.value,
-            'Optometric Sphere':self.optoSphere.value,
-            'Optometric Cylinder':self.optoCylinder.value,
-            'Optometric Axis Angle':self.optoAxisDeg.value,
-            'Radius of Curvature':self.radiusOfCurvature.value,
-            'Fit Error Mean':self.fitErrMean.value,
-            'Fit Error Std':self.fitErrStdev.value,
-            'Zernikes Coefficients':self.arrayZernikes,
-            'Zernikes RMS':self.arrayZernikeRMS
-        }
-        print(storedData)
-        f.write(str(storedData)+'\r')
-        print('done')
-        f.close()
+        exposureTimeAct = ct.c_double()
+        masterGainAct = ct.c_double() 
+        beam_centroid_x = ct.c_double() 
+        beam_centroid_y = ct.c_double() 
+        beam_diameter_x = ct.c_double() 
+        beam_diameter_y = ct.c_double()
+        arrayWavefront = np.zeros((80,80),dtype = np.float32)
+        arrayDeviation_x = np.zeros((80,80),dtype=np.float32) 
+        arrayDeviation_y = np.zeros((80,80),dtype=np.float32)
+        arrayDeviation = np.zeros((80,80,2),dtype=np.float32) 
+        arrayIntensity = np.zeros((80,80),dtype=np.float32) 
+        wavefront_min = ct.c_double() 
+        wavefront_max = ct.c_double() 
+        wavefront_diff = ct.c_double() 
+        wavefront_mean = ct.c_double() 
+        wavefront_rms = ct.c_double() 
+        wavefront_weighted_rms = ct.c_double() 
+        fourierM = ct.c_double()
+        fourierJ0 = ct.c_double()
+        fourierJ45 = ct.c_double()
+        optoSphere = ct.c_double()
+        optoCylinder = ct.c_double()
+        optoAxisDeg = ct.c_double()
+        radiusOfCurvature = ct.c_double()
+        fitErrMean = ct.c_double()
+        fitErrStdev = ct.c_double()
+
+        print_counter = 0
+        while True:
+            devStatus = wfs.WFS_TakeSpotfieldImageAutoExpos(instrumentHandle,byref(exposureTimeAct), byref(masterGainAct))
+            if(devStatus == 0):
+                print('Took spotfield image')
+                print('Exposure Time: '+str(exposureTimeAct.value))
+                print('Master Gain: '+str(masterGainAct.value))
+                break
+            elif(devStatus == -0x4003f6ea):
+                if print_counter >= 10:
+                    print('Waiting for trigger')
+                    print_counter = -1
+                print_counter += 1
+                sleep(1e-9)                
+            else:
+                errorCode.value = devStatus
+                wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+                print('error in WFS_TakeSpotfieldImageAutoExpos():' + str(errorMessage.value)+'\nPlease refresh Devices Tab.\n')
+                wfs.WFS_close(instrumentHandle)
+                raise
+
+        devStatus = wfs.WFS_CalcSpotsCentrDiaIntens(instrumentHandle, 
+                                                    dynamicNoiseCut, calculateDiameters)
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_CalcSpotsCentrDiaIntens():' + str(errorMessage.value))
+        else:
+            print('WFS spot centroids calculated')
+        
+        devStatus = wfs.WFS_CalcBeamCentroidDia(instrumentHandle, byref(beam_centroid_x), 
+                                                     byref(beam_centroid_y), byref(beam_diameter_x), byref(beam_diameter_y))
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_CalcBeamCentroidDia():' + str(errorMessage.value))
+        else:
+            print('WFS beam centeroid and diameter calculated')
         
 
+        devStatus = wfs.WFS_CalcSpotToReferenceDeviations(instrumentHandle, cancelWavefrontTilt)
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_CalcSpotToReferenceDeviations():' + str(errorMessage.value))
+        else:
+            print('WFS spot to ref deviations calculated')
+
+        devStatus = wfs.WFS_GetSpotDeviations(instrumentHandle, arrayDeviation_x.ctypes.data_as(ct.POINTER(ct.c_double)),arrayDeviation_y.ctypes.data_as(ct.POINTER(ct.c_double)))
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_GetSpotDeviations():' + str(errorMessage.value))
+        else:
+            print('WFS spot to ref deviations got')
+        for i in range(80):
+            for j in range(80):
+                arrayDeviation[i][j][0] = arrayDeviation_x[i][j]
+                arrayDeviation[i][j][1] = arrayDeviation_y[i][j]
+
+        devStatus = wfs.WFS_GetSpotIntensities(instrumentHandle, arrayIntensity.ctypes.data_as(ct.POINTER(ct.c_double)))
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_GetSpotIntensities():' + str(errorMessage.value))
+        else:
+            print('WFS spot Intensities got')
+        
+        arrayaddr=arrayWavefront.ctypes.data_as(ct.POINTER(ct.c_float))
+        devStatus = wfs.WFS_CalcWavefront(instrumentHandle, 
+                                        wavefrontType, limitToPupil,arrayaddr)
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_CalcWavefront():' + str(errorMessage.value))
+            print('WFS wavefront calculated')
+        
+
+        devStatus = wfs.WFS_CalcWavefrontStatistics(instrumentHandle, byref(wavefront_min), byref(wavefront_max), 
+                            byref(wavefront_diff), byref(wavefront_mean), byref(wavefront_rms), byref(wavefront_weighted_rms))
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_CalcWavefrontStatistics():' + str(errorMessage.value))
+        else:
+            print('WFS wavefront stats calculated')
+        
+
+        devStatus = wfs.WFS_CalcFourierOptometric(instrumentHandle, zernikeOrder, fourierOrder, byref(fourierM), byref(fourierJ0),
+                                                    byref(fourierJ45), byref(optoSphere), byref(optoCylinder), byref(optoAxisDeg))
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in CalcFourierOptometric():' + str(errorMessage.value))
+        else:
+            print('WFS Fourier optometrics calculated')
+        
+
+        devStatus = wfs.WFS_ZernikeLsf(instrumentHandle, byref(zernikeOrder), arrayZernikes.ctypes.data_as(ct.POINTER(ct.c_double)), 
+                            arrayZernikeRMS.ctypes.data_as(ct.POINTER(ct.c_double)), byref(radiusOfCurvature))
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_ZernikeLsf():' + str(errorMessage.value))
+        else:
+            print('WFS Zernike coefficients calculated')
+        
+
+        devStatus = wfs.WFS_CalcReconstrDeviations(instrumentHandle, zernikeOrder,arrayReconstructSelect.ctypes.data_as(ct.POINTER(ct.c_double)) ,
+                                                    doSphericalReference, byref(fitErrMean), byref(fitErrStdev))
+        if(devStatus != 0):
+            errorCode.value = devStatus
+            wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
+            print('error in WFS_CalcReconstrDeviations():' + str(errorMessage.value))
+        else:
+            print('WFS Reconstruction Deviations calculated')
+        
+        print('saving to file:'+path)
+        f = open(path, "ab+")
+        # f = open(path, "a") # Used for debugging
+        # f = open(path, "w") # Used for debugging
+        storedData = {
+            'Beam Center X':beam_centroid_x.value,
+            'Beam Center Y':beam_centroid_y.value,
+            'Beam Diameter X':beam_diameter_x.value,
+            'Beam Diameter Y':beam_diameter_y.value, 
+            'Wavefront Min':wavefront_min.value, 
+            'Wavefront Max':wavefront_max.value, 
+            'Wavefront Peak-Valley':wavefront_diff.value,
+            'Wavefront Mean':wavefront_mean.value, 
+            'Wavefront RMS':wavefront_rms.value, 
+            'Wavefront Weighted RMS':wavefront_weighted_rms.value,
+            'Fourier M':fourierM.value,
+            'Fourier J0':fourierJ0.value,
+            'Fourier J45':fourierJ45.value,
+            'Optometric Sphere':optoSphere.value,
+            'Optometric Cylinder':optoCylinder.value,
+            'Optometric Axis Angle':optoAxisDeg.value,
+            'Radius of Curvature':radiusOfCurvature.value,
+            'Fit Error Mean':fitErrMean.value,
+            'Fit Error Std':fitErrStdev.value,
+            'Zernikes Coefficients':arrayZernikes,
+            'Zernikes RMS':arrayZernikeRMS,
+            'Spot Deviations':arrayDeviation,
+            'Spot Intensities':arrayIntensity
+        }
+        # f.write(str(storedData)+'\r') Used for debugging
+        pickle.dump(storedData,f)
+        f.close()
+        print('Data saved')
+
     def transition_to_buffered(self,device_name,h5file,initial_values,fresh):
-        # with h5py.File(h5file, 'r') as f:
-        #     pass
+        passed_args = (self.wfs,
+                        self.instrumentHandle,
+                        self.errorCode,
+                        self.errorMessage,
+                        self.byref,
+                        self.dynamicNoiseCut,
+                        self.calculateDiameters,
+                        self.cancelWavefrontTilt,
+                        self.wavefrontType,
+                        self.limitToPupil,
+                        self.zernikeOrder,
+                        self.fourierOrder,
+                        self.arrayZernikes,
+                        self.arrayZernikeRMS,
+                        self.arrayReconstructSelect,
+                        self.doSphericalReference,
+                        self.path
+                        )
+        self.thread = Thread(target = self.threaded_worker, args = passed_args)
+        self.thread.start()
         return {}
     
     def abort_transition_to_buffered(self):
@@ -273,9 +413,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         return self.transition_to_manual(True)
     
     def transition_to_manual(self,abort = False):
-
-
-# ''' For test only
+        ''' For debugging only
         devStatus = self.wfs.WFS_TakeSpotfieldImageAutoExpos(self.instrumentHandle,
                                                         self.byref(self.exposureTimeAct), self.byref(self.masterGainAct))
         if(devStatus != 0):
@@ -308,101 +446,12 @@ class ThorlabsWaveFrontSensorWorker(Worker):
                 else:
                     print("Image is usable.... breaking loop")
                     break
-# '''
-
-        devStatus = self.wfs.WFS_CalcSpotsCentrDiaIntens(self.instrumentHandle, self.dynamicNoiseCut, self.calculateDiameters)
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in WFS_CalcSpotsCentrDiaIntens():' + str(self.errorMessage.value))
-        else:
-            print('WFS spot centroids calculated')
-        sleep(0.1)
-        # self.wfs.WFS_CalcBeamCentroidDia.argtypes =[ct.c_ulonglong, ct.POINTER(ct.c_double), ct.POINTER(ct.c_double), ct.POINTER(ct.c_double), ct.POINTER(ct.c_double)]
-        devStatus = self.wfs.WFS_CalcBeamCentroidDia(self.instrumentHandle, self.byref(self.beam_centroid_x), 
-                                                     self.byref(self.beam_centroid_y), self.byref(self.beam_diameter_x), self.byref(self.beam_diameter_y))
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in WFS_CalcBeamCentroidDia():' + str(self.errorMessage.value))
-        else:
-            print('WFS beam centeroid and diameter calculated')
-        sleep(0.1)
-
-        devStatus = self.wfs.WFS_CalcSpotToReferenceDeviations(self.instrumentHandle, self.cancelWavefrontTilt)
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in WFS_CalcSpotToReferenceDeviations():' + str(self.errorMessage.value))
-        else:
-            print('WFS spot to ref deviations calculated')
-
-        # devStatus = self.wfs.WFS_GetSpotDeviations(self.instrumentHandle, self.byref(self.deviation_x),self.byref(self.deviation_y))
-        # if(devStatus != 0):
-        #     self.errorCode.value = devStatus
-        #     self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-        #     print('error in WFS_GetSpotDeviations():' + str(self.errorMessage.value))
-        # else:
-        #     print('WFS spot to ref deviations got')
-        sleep(0.1)
-        arrayaddr=self.arrayWavefront.ctypes.data_as(ct.POINTER(ct.c_float))
-        print('arrayWavefront address: '+str(arrayaddr))
-        # self.wfs.WFS_CalcWavefront.argtypes =[ct.c_ulonglong,ct.c_int32,ct.c_int32,ct.POINTER(ct.c_float)]
-        # self.wfs.WFS_CalcWavefront.restype = ct.c_int
-        devStatus = self.wfs.WFS_CalcWavefront(self.instrumentHandle, 
-                                        self.wavefrontType, self.limitToPupil,arrayaddr)
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in WFS_CalcWavefront():' + str(self.errorMessage.value))
-            print('WFS wavefront calculated')
-        sleep(0.1)
-
-        devStatus = self.wfs.WFS_CalcWavefrontStatistics(self.instrumentHandle, self.byref(self.wavefront_min), self.byref(self.wavefront_max), 
-                            self.byref(self.wavefront_diff), self.byref(self.wavefront_mean), self.byref(self.wavefront_rms), self.byref(self.wavefront_weighted_rms))
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in WFS_CalcWavefrontStatistics():' + str(self.errorMessage.value))
-        else:
-            print('WFS wavefront stats calculated')
-        sleep(0.1)
-
-        devStatus = self.wfs.WFS_CalcFourierOptometric(self.instrumentHandle, self.zernikeOrder, self.fourierOrder, self.byref(self.fourierM), self.byref(self.fourierJ0),
-                                                    self.byref(self.fourierJ45), self.byref(self.optoSphere), self.byref(self.optoCylinder), self.byref(self.optoAxisDeg))
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in CalcFourierOptometric():' + str(self.errorMessage.value))
-        else:
-            print('WFS Fourier optometrics calculated')
-        sleep(0.1)
-
-        # self.wfs.WFS_ZernikeLsf.argtypes=[ct.c_ulonglong, ct.POINTER(ct.c_int32),ct.POINTER(ct.c_uint32), ct.POINTER(ct.c_uint32), ct.POINTER(ct.c_double)]
-        devStatus = self.wfs.WFS_ZernikeLsf(self.instrumentHandle, self.byref(self.zernikeOrder), self.arrayZernikes.ctypes.data_as(ct.POINTER(ct.c_double)), 
-                            self.arrayZernikeRMS.ctypes.data_as(ct.POINTER(ct.c_double)), self.byref(self.radiusOfCurvature))
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in WFS_ZernikeLsf():' + str(self.errorMessage.value))
-        else:
-            print('WFS Zernike coefficients calculated')
-        sleep(0.1)
-
-        devStatus = self.wfs.WFS_CalcReconstrDeviations(self.instrumentHandle, self.zernikeOrder,self.arrayReconstructSelect.ctypes.data_as(ct.POINTER(ct.c_double)) ,
-                                                    self.doSphericalReference, self.byref(self.fitErrMean), self.byref(self.fitErrStdev))
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in WFS_CalcReconstrDeviations():' + str(self.errorMessage.value))
-        else:
-            print('WFS Reconstruction Deviations calculated')
-        sleep(0.1)
-        self.data_write()
-        sleep(0.1)
-        print('FINISH')
+        '''
+        try:
+            self.thread.join()
+        except:
+            pass
         return True
 
     def shutdown(self):
         self.wfs.WFS_close(self.instrumentHandle)
-        pass
