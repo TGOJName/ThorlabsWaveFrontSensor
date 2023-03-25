@@ -188,7 +188,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
             print('SpotsX:' + str(self.spotsX.value))
             print('SpotsY:' + str(self.spotsY.value))
 
-        self.arrayWavefront = np.zeros((self.spotsY.value,self.spotsX.value),dtype = np.float32) #
+        self.arrayWavefront = np.zeros((80,80),dtype = np.float32) #
         print("hello there")
 
         devStatus = self.wfs.WFS_SetTriggerMode(self.instrumentHandle, self.refInternal)
