@@ -60,4 +60,15 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
         return trigger_duration
 
     def generate_code(self, hdf5_file):
+
+        # dtypes = {'names':['motor1','motor2','motor3','motor4'],'formats':[np.uint32,np.uint32,np.uint32,np.uint32]}
+
+        # out_table = np.zeros(1,dtype=dtypes)# create the table data for the hdf5 file.
+        # out_table['motor1'].fill(self.target_position[0])
+        # out_table['motor2'].fill(self.target_position[1])
+        # out_table['motor3'].fill(self.target_position[2])
+        # out_table['motor4'].fill(self.target_position[3])
+        # grp = self.init_device_group(hdf5_file)
+        # grp.create_dataset('DATA',compression=config.compression,data={}) 
+
         pass

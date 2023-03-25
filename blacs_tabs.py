@@ -26,6 +26,63 @@ class ThorlabsWaveFrontSensorTab(DeviceTab):
         connection_object = self.settings['connection_table'].find_by_name(self.device_name)
 
         wfsProp = {}
+        wfsProp['Resolution Index'] = {
+            'base_unit': '',
+            'min': 0,
+            'max': 11,
+            'step': 1,
+            'decimals': 0,
+        }
+        wfsProp['Pupil Center X'] = { # TODO: Determine a reasonable position range
+            'base_unit': 'mm',
+            'min': -4,
+            'max': 4,
+            'step': 0.001,
+            'decimals': 3,
+        }
+        wfsProp['Pupil Center Y'] = {
+            'base_unit': 'mm',
+            'min': -4,
+            'max': 4,
+            'step': 0.001,
+            'decimals': 3,
+        }
+        wfsProp['Pupil Diameter X'] = {
+            'base_unit': 'mm',
+            'min': 0,
+            'max': 4,
+            'step': 0.001,
+            'decimals': 3,
+        }
+        wfsProp['Pupil Diameter Y'] = {
+            'base_unit': 'mm',
+            'min': 0,
+            'max': 4,
+            'step': 0.001,
+            'decimals': 3,
+        }
+        wfsProp['Limited to Pupil?'] = {
+            'base_unit': 'Bool',
+            'min': 0,
+            'max': 1,
+            'step': 1,
+            'decimals': 0,
+        }
+        wfsProp['Highest Zernike Order'] = {
+            'base_unit': '',
+            'min': 2,
+            'max': 10,
+            'step': 1,
+            'decimals': 0,
+        }
+        wfsProp['Fourier Order'] = {
+            'base_unit': '',
+            'min': 2,
+            'max': 6,
+            'step': 2,
+            'decimals': 0,
+        }
+        
         # Create DDS Output objects: we only need frequency for the carrier and frequency and phase for the mod
         self.create_analog_outputs(wfsProp)
 
