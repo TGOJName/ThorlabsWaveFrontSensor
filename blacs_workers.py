@@ -113,7 +113,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.pupilDiameterXMm.value = 3. # mm
         self.pupilDiameterYMm.value = 3. # mm
         self.dynamicNoiseCut.value = 1 # Boolean
-        self.cancelWavefrontTilt.value = 1
+        self.cancelWavefrontTilt.value = 0 # Boolean
         self.refInternal.value = 0 # 0/1 stands for using internal/user-defined reference plane
 
         self.wavefrontType.value = 0
@@ -381,15 +381,17 @@ class ThorlabsWaveFrontSensorWorker(Worker):
             'Radius of Curvature':radiusOfCurvature.value,
             'Fit Error Mean':fitErrMean.value,
             'Fit Error Std':fitErrStdev.value,
+            'Wavefront': arrayWavefront,
             'Zernikes Coefficients':arrayZernikes,
             'Zernikes RMS':arrayZernikeRMS,
             'Spot Deviations':arrayDeviation,
             'Spot Intensities':arrayIntensity
         }
+        print(storedData)
         # f.write(str(storedData)+'\r') Used for debugging
         pickle.dump(storedData,f)
         f.close()
-        print('Data saved')
+        print('Data saved\n')
 
     def transition_to_buffered(self,device_name,h5file,initial_values,fresh):
         passed_args = (self.wfs,
