@@ -36,6 +36,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.calculateDiameters= ct.c_int32()
 
         # Parameter Variable declarations
+        self.mlaIndex = ct.c_uint32()
         self.pupilCenterXMm = ct.c_double()
         self.pupilCenterYMm = ct.c_double()
         self.pupilDiameterXMm = ct.c_double()
@@ -59,6 +60,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.spotsY = ct.c_int32()
 
         # Parameter settings
+        self.mlaIndex.value = 0 # For wavefront sensor with single MLA
         # self.path = r'C:\Users\Public\Desktop\WFSdata.txt'
         self.path = r'C:\Users\Public\Desktop\WFSdata.pkl'
         self.calculateDiameters.value = 0 # Used by manufacturer
@@ -140,6 +142,14 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         else:
             print('WFS already in use')
 
+        devStatus = self.wfs.WFS_SelectMla(self.instrumentHandle, self.mlaIndex)
+        if(devStatus != 0):
+            self.errorCode.value = devStatus
+            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
+            print('error in WFS_SelectMla():' + str(self.errorMessage.value))
+        else:
+            print('WFS MLA selected')
+
 
 
     def program_manual(self,front_panel_values):
@@ -163,8 +173,6 @@ class ThorlabsWaveFrontSensorWorker(Worker):
             print('WFS camera configured')
             print('SpotsX:' + str(self.spotsX.value))
             print('SpotsY:' + str(self.spotsY.value))
-
-        print("hello there")
 
         devStatus = self.wfs.WFS_SetTriggerMode(self.instrumentHandle, self.triggerMode)
         if(devStatus != 0):
