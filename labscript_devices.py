@@ -30,7 +30,7 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
     @set_passed_properties(
         property_names={
             'connection_table_properties': [
-                'sensorIndex',
+                'serialNum',
             ]
         }
     )
@@ -38,11 +38,11 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
         self,
         name,
         parent_device,
-        sensorIndex,
+        serialNum,
         **kwargs
     ):
         TriggerableDevice.__init__(self, name, parent_device, **kwargs)
-        self.BLACS_connection = '%u'%(sensorIndex)
+        self.BLACS_connection = '%u'%(serialNum)
 
     def expose(self, t, trigger_duration = 150e-6):
         """Request an exposure at the given time. A trigger will be produced by the

@@ -25,7 +25,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.byref = ct.byref
         self.count = ct.c_int32() 
         self.deviceID  = ct.c_int32()  
-        self.instrumentListIndex  = ct.c_int32() 
+        self.instrumentListIndex = ct.c_int32()
         self.inUse = ct.c_int32() 
         self.instrumentName = ct.create_string_buffer(20)
         self.instrumentSN = ct.create_string_buffer(20)
@@ -75,7 +75,6 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         self.arrayReconstructSelect = np.ones(self.ZernikeOrderCount[self.zernikeOrder.value],dtype=np.int32)
                                     # The T/F table determining whether each Zernike mode is used to reconstruct the wavefront
         self.doSphericalReference.value = 0 # Not sure what it indicates so I put 0 here assuming it means plane reference
-        self.instrumentListIndex.value = self.sensorIndex # 0,1,2... if multiple instruments connected
         self.camResolIndex.value = 0
         '''
         About camResolIndex.value:
@@ -129,8 +128,14 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         # 1   Limit Wavefront to pupil interior (recommended for the device to measure beam params)
 
         self.wfs.WFS_GetInstrumentListLen(None,self.byref(self.count))
-        devStatus = self.wfs.WFS_GetInstrumentListInfo(None,self.instrumentListIndex, self.byref(self.deviceID), self.byref(self.inUse),
-                                    self.instrumentName, self.instrumentSN, self.resourceName) # Should return 0 if succeeds
+        for i in range(self.count.value+1):
+            if i == self.count.value:
+                raise ConnectionError('Failed to find the device: Check the serial number.')
+            self.instrumentListIndex.value = i
+            devStatus = self.wfs.WFS_GetInstrumentListInfo(None,self.instrumentListIndex, self.byref(self.deviceID), self.byref(self.inUse),
+                                        self.instrumentName, self.instrumentSN, self.resourceName) # Should return 0 if succeeds
+            if (self.instrumentSN.value).decode() == self.serialNum:
+                break
         if not self.inUse.value:
             devStatus = self.wfs.WFS_init(self.resourceName, self.IDQuery, self.resetDevice, self.byref(self.instrumentHandle))
             if(devStatus != 0):

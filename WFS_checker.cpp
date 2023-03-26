@@ -253,6 +253,7 @@ int select_instrument (int *selection, ViChar resourceName[])
 	char           instr_name[WFS_BUFFER_SIZE];
 	char           serNr[WFS_BUFFER_SIZE];
 	char           strg[WFS_BUFFER_SIZE];
+	int 		   returned = 0;
 
 	// Find available instruments
 	if(err = WFS_GetInstrumentListLen (VI_NULL, &instr_cnt))
@@ -266,13 +267,14 @@ int select_instrument (int *selection, ViChar resourceName[])
 
 	// List available instruments
 	printf("Available Wavefront Sensor instruments:\n\n");
+	printf("Device_ID  WFS_name  Serial_num\n");
 	
 	for(i=0;i<instr_cnt;i++)
 	{
 		if(err = WFS_GetInstrumentListInfo (VI_NULL, i, &device_id, &in_use, instr_name, serNr, resourceName))
 			handle_errors(err);
 		
-		printf("%4d   %s    %s    %s\n", device_id, instr_name, serNr, (!in_use) ? "" : "(inUse)");
+		printf(" %4d   %s    %s    %s\n", device_id, instr_name, serNr, (!in_use) ? "" : "(inUse)");
 	}
 
 	// Select instrument
@@ -289,10 +291,11 @@ int select_instrument (int *selection, ViChar resourceName[])
 		   handle_errors(err);
 		
 		if(device_id == *selection)
+			returned = *selection;
 			break; // resourceName fits to device_id
 	}
 	
-	return *selection;
+	return returned;
 }
 
 
