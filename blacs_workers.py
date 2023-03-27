@@ -147,6 +147,14 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         else:
             print('WFS already in use')
 
+        devStatus = self.wfs.WFS_SetTriggerMode(self.instrumentHandle, self.triggerMode)
+        if(devStatus != 0):
+            self.errorCode.value = devStatus
+            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
+            print('error in SetTriggerMode():' + str(self.errorMessage.value))
+        else:
+            print('WFS trigger mode set')
+
         devStatus = self.wfs.WFS_SelectMla(self.instrumentHandle, self.mlaIndex)
         if(devStatus != 0):
             self.errorCode.value = devStatus
@@ -178,14 +186,6 @@ class ThorlabsWaveFrontSensorWorker(Worker):
             print('WFS camera configured')
             print('SpotsX:' + str(self.spotsX.value))
             print('SpotsY:' + str(self.spotsY.value))
-
-        devStatus = self.wfs.WFS_SetTriggerMode(self.instrumentHandle, self.triggerMode)
-        if(devStatus != 0):
-            self.errorCode.value = devStatus
-            self.wfs.WFS_error_message(self.instrumentHandle,self.errorCode,self.errorMessage)
-            print('error in SetTriggerMode():' + str(self.errorMessage.value))
-        else:
-            print('WFS trigger mode set')
 
         devStatus = self.wfs.WFS_SetReferencePlane(self.instrumentHandle, self.refInternal)
         if(devStatus != 0):
@@ -244,25 +244,27 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         radiusOfCurvature = ct.c_double()
         fitErrMean = ct.c_double()
         fitErrStdev = ct.c_double()
+        status = ct.c_long()
+
+        wfs.WFS_TakeSpotfieldImageAutoExpos(instrumentHandle,byref(exposureTimeAct), byref(masterGainAct))
 
         print_counter = 0
         while True:
-            devStatus = wfs.WFS_TakeSpotfieldImageAutoExpos(instrumentHandle,byref(exposureTimeAct), byref(masterGainAct))
+            devStatus = wfs.WFS_GetStatus(instrumentHandle,byref(status))
             if(devStatus == 0):
-                print('Took spotfield image')
-                print('Exposure Time: '+str(exposureTimeAct.value))
-                print('Master Gain: '+str(masterGainAct.value))
-                break
-            elif(devStatus == -0x4003f6ea):
-                if print_counter >= 10:
-                    print('Waiting for trigger')
-                    print_counter = -1
-                print_counter += 1
-                sleep(1e-9)                
+                if(status.value & 0x00000080):
+                    if print_counter >= 10:
+                        print('Waiting for trigger')
+                        print_counter = -1
+                    print_counter += 1
+                    sleep(1e-9)
+                else:
+                    print("Triggered!")
+                    break         
             else:
                 errorCode.value = devStatus
                 wfs.WFS_error_message(instrumentHandle,errorCode,errorMessage)
-                print('error in WFS_TakeSpotfieldImageAutoExpos():' + str(errorMessage.value)+'\nPlease refresh Devices Tab.\n')
+                print('error in WFS_GetStatus():' + str(errorMessage.value)+'\nPlease refresh Devices Tab.\n')
                 wfs.WFS_close(instrumentHandle)
                 raise
 
