@@ -13,6 +13,12 @@ import numpy as np
 from time import sleep
 from threading import Thread
 import pickle
+from labscript_utils import dedent
+import labscript_utils.h5_lock
+import h5py
+import labscript_utils.properties
+from labscript_utils.shared_drive import path_to_local
+from labscript_utils.properties import set_attributes
 
 class ThorlabsWaveFrontSensorWorker(Worker):
     def init(self):
@@ -216,7 +222,7 @@ class ThorlabsWaveFrontSensorWorker(Worker):
     def threaded_worker(self,wfs,instrumentHandle,errorCode,errorMessage,byref,dynamicNoiseCut,
                         calculateDiameters,cancelWavefrontTilt,wavefrontType,limitToPupil,
                         zernikeOrder,fourierOrder,arrayZernikes,arrayZernikeRMS,
-                        arrayReconstructSelect,doSphericalReference,path):
+                        arrayReconstructSelect,doSphericalReference,dataList):
 
         exposureTimeAct = ct.c_double()
         masterGainAct = ct.c_double() 
@@ -245,11 +251,15 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         fitErrMean = ct.c_double()
         fitErrStdev = ct.c_double()
         status = ct.c_long()
+        global stop_threads
+        stop_threads = False
 
         wfs.WFS_TakeSpotfieldImageAutoExpos(instrumentHandle,byref(exposureTimeAct), byref(masterGainAct))
 
         print_counter = 0
         while True:
+            if stop_threads:
+                return 0
             devStatus = wfs.WFS_GetStatus(instrumentHandle,byref(status))
             if(devStatus == 0):
                 if(status.value & 0x00000080):
@@ -364,8 +374,8 @@ class ThorlabsWaveFrontSensorWorker(Worker):
         else:
             print('WFS Reconstruction Deviations calculated')
         
-        print('saving to file:'+path)
-        f = open(path, "ab+")
+        # print('saving to file:'+path)
+        # f = open(path, "ab+")
         # f = open(path, "a") # Used for debugging
         # f = open(path, "w") # Used for debugging
         storedData = {
@@ -394,13 +404,15 @@ class ThorlabsWaveFrontSensorWorker(Worker):
             'Spot Deviations':arrayDeviation,
             'Spot Intensities':arrayIntensity
         }
-        print(storedData)
+        dataList.append(storedData)
+        # print(storedData)
         # f.write(str(storedData)+'\r') Used for debugging
-        pickle.dump(storedData,f)
-        f.close()
-        print('Data saved\n')
+        # pickle.dump(storedData,f)
+        # f.close()
+        # print('Data saved\n')
 
     def transition_to_buffered(self,device_name,h5file,initial_values,fresh):
+        self.dataList = []
         passed_args = (self.wfs,
                         self.instrumentHandle,
                         self.errorCode,
@@ -417,8 +429,10 @@ class ThorlabsWaveFrontSensorWorker(Worker):
                         self.arrayZernikeRMS,
                         self.arrayReconstructSelect,
                         self.doSphericalReference,
-                        self.path
+                        # self.path,
+                        self.dataList
                         )
+        self.h5_filepath = h5file
         self.thread = Thread(target = self.threaded_worker, args = passed_args)
         self.thread.start()
         return {}
@@ -464,10 +478,44 @@ class ThorlabsWaveFrontSensorWorker(Worker):
                     print("Image is usable.... breaking loop")
                     break
         '''
-        try:
-            self.thread.join()
-        except:
-            pass
+
+
+        if not (self.h5_filepath is None):
+            try:
+                self.thread.join(timeout=1)
+                if self.thread.is_alive():
+                    msg = "WFS did not acquire data. Check triggering is connected/configured correctly"
+                    self.shutdown()
+                    stop_threads = True
+                    raise RuntimeError(msg)
+            except:
+                pass
+
+            with h5py.File(self.h5_filepath, 'r+') as f:
+                # Use orientation for image path, device_name if orientation unspecified
+                if self.orientation is not None:
+                    image_path = 'images/' + self.orientation
+                else:
+                    image_path = 'images/' + self.device_name
+                image_group = f.require_group(image_path)
+                image_group.attrs['Wavefront Sensor'] = self.device_name
+                image_group.attrs['Resolution Index'] = self.camResolIndex.value
+                image_group.attrs['Pupil Center X'] = self.pupilCenterXMm.value
+                image_group.attrs['Pupil Center Y'] = self.pupilCenterYMm.value
+                image_group.attrs['Pupil Diameter X'] = self.pupilDiameterXMm.value
+                image_group.attrs['Pupil Diameter Y'] = self.pupilDiameterYMm.value
+                image_group.attrs['Limited to Pupil?'] = self.limitToPupil.value
+                image_group.attrs['Highest Zernike Order'] = self.zernikeOrder.value
+                image_group.attrs['Fourier Order'] = self.fourierOrder.value
+
+                for i in range(len(self.dataList)):
+                    group = image_group.require_group(str(i))
+                    databulk = list(self.dataList[i].items())
+                    for result in databulk:
+                        group.create_dataset(result[0], data=result[1], compression='gzip')
+
+            self.h5_filepath = None
+
         return True
 
     def shutdown(self):

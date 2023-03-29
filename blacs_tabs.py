@@ -95,11 +95,13 @@ class ThorlabsWaveFrontSensorTab(DeviceTab):
         # Add icons
         
         self.serialNum = connection_table_properties.get('serialNum', None)
+        self.orientation = connection_table_properties.get('orientation', None)
 
         # Create and set the primary worker
         self.create_worker("main_worker",
                             'labscript_devices.ThorlabsWaveFrontSensor.blacs_workers.ThorlabsWaveFrontSensorWorker',
-                            {'serialNum':self.serialNum})
+                            {'serialNum':self.serialNum,
+                             'orientation': self.orientation})
         
         self.primary_worker = "main_worker"
 
