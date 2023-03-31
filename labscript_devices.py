@@ -44,7 +44,7 @@ class ThorlabsWaveFrontSensor(TriggerableDevice):
         **kwargs
     ):
         TriggerableDevice.__init__(self, name, parent_device, **kwargs)
-        self.BLACS_connection = '%u'%(serialNum)
+        self.BLACS_connection = '%s'%(serialNum)
         self.orientation = orientation
 
     def expose(self, t, trigger_duration = 150e-6):
